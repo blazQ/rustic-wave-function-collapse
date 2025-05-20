@@ -1,30 +1,37 @@
-mod xml_utils;
+use std::collections::HashMap;
+
+use bitmap_utils::save_bitmap;
+use simple_tiled::initialize_simple_tiled_model;
+
+mod simple_tiled;
 mod bitmap_utils;
 mod array_utils;
 
-use array_utils::reflect;
-use xml_utils::get_base_tiles;
-use bitmap_utils::load_bitmap;
-use bitmap_utils::save_bitmap;
-use array_utils::rotate;
-
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let tiles = get_base_tiles("Circuit.xml")?;
-    
-    for tile in tiles {
-        println!("Tile: {}, Variants: {:?}, Weight: {:?}", tile.name, tile.variants, tile.weight);
-        println!("Reflecting variant 0 yields variant {}", (tile.reflect_v)(0));
+    let (t, tilesize, weights, tiles, tilenames, action, first_occurrence) = initialize_simple_tiled_model("Castle.xml")?;
+
+    println!("Tiles: {}", t);
+
+    for tilename in first_occurrence.keys(){
+        println!("Name: {}, First_occurence: {}", tilename, first_occurrence[tilename]);
     }
 
-    let (pixels, width, height) = load_bitmap("connection.png");
-    println!("Loaded image: {}x{}", width, height);
+    for weight in weights {
+        println!("Weights: {}", weight);
+    }
 
-    let transformed = rotate(&pixels);
-    let transformed = reflect(&transformed);
+    for (index, tile) in tiles.iter().enumerate() {
+        save_bitmap(format!("{index}.png"), tile, tilesize, tilesize);
+    }
 
-    save_bitmap("rotated.png", &transformed, width, height);
-    println!("Saved rotated image to 'rotated.png'");
+    for (index, tile) in action.iter().enumerate(){
+        println!("Tile no. {}", index);
+        println!("-------------------");
+        for (index, variant) in tile.iter().enumerate() {
+            println!("Transform {index} yields {variant}");
+        }
+    }
 
     Ok(())
 }
