@@ -31,3 +31,17 @@ where
     }
     result
 }
+
+pub fn weighted_random(weights: &[f32], r: f32) -> usize {
+    let total: f32 = weights.iter().sum();
+    let threshold = r * total;
+    
+    let mut partial_sum = 0.0;
+    for i in 0..weights.len() {
+        partial_sum += weights[i];
+        if partial_sum >= threshold {
+            return i;
+        }
+    }
+    0
+}
