@@ -15,7 +15,7 @@ It's based on the SimpleTiledModel.
 ## Usage
 
 Example of usage:
-``cargo run -- --tileset Castle --size 20 --limit 1000 --seed 12345 --text --output castle.png``
+```cargo run -- --tileset Castle --size 20 --limit 1000 --seed 12345 --text --output castle.png```
 
 You can specify any of the tilesets supplied in the tilesets folder, or you can derive your own using a similar structure, using an XML files with tiles and neighbor constraints. I've implemented the symmetry system described by the original author, so you don't need to be exhaustive.
 You can avoid specifying an argument if it's not needed (if you don't specify a seed, the program will generate it for you, if you don't specify the output file it will simply be named output.png and so on)
