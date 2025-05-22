@@ -1,8 +1,9 @@
 use roxmltree::{Document};
 use core::f32;
-use std::{collections::{HashMap}, fs};
+use std::{collections::HashMap, fs};
 use rand::Rng;
 use rand::{SeedableRng, rngs::StdRng};
+use std::path::Path;
 
 use crate::{array_utils::{self, reflect, rotate}, bitmap_utils};
 
@@ -40,12 +41,21 @@ pub struct SimpleTiledModel{
 
 impl SimpleTiledModel {
 
-    pub fn new(xml_path: &str, size: usize) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new<P: AsRef<Path>>(xml_path: &P, grid_size: usize) -> Result<Self, Box<dyn std::error::Error>> {
         let xml_content = fs::read_to_string(xml_path)?;
+        let xml_string = xml_path.as_ref().to_string_lossy();
         let doc = Document::parse(&xml_content)?;
-        let domain_name = match xml_path.strip_suffix(".xml"){
-            Some(name) => name.to_string(),
-            None => xml_path.to_string(),
+        
+        let domain_name = xml_path.as_ref()
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| xml_string.to_string());
+
+        let unique = match &doc.root_element().attribute("unique"){
+            Some(unique_str) => {unique_str.to_lowercase().parse().unwrap_or(false)},
+            None => {
+                false
+            }
         };
 
         let weights: Vec<f32> = Vec::new();
@@ -54,7 +64,7 @@ impl SimpleTiledModel {
         let action: Vec<Vec<usize>> = Vec::new();
         let first_occurrence: HashMap<String, usize> = HashMap::new();
 
-        let (t, tilesize, weights, tiles, tilenames, action, first_occurrence) = Self::process_tiles(&doc, &domain_name, weights, tiles, tilenames, action, first_occurrence)?;
+        let (t, tilesize, weights, tiles, tilenames, action, first_occurrence) = Self::process_tiles(&doc, &domain_name, &unique, weights, tiles, tilenames, action, first_occurrence)?;
 
         let propagator = Self::get_propagator(&doc, t, first_occurrence, action)?;
 
@@ -63,25 +73,25 @@ impl SimpleTiledModel {
         let sum_of_weight_log_weights: f32 = weight_log_weights.iter().sum();
 
         Ok(SimpleTiledModel { 
-            wave: vec![vec![true; t]; size * size], 
-            observed: vec![None; size * size],
+            wave: vec![vec![true; t]; grid_size * grid_size], 
+            observed: vec![None; grid_size * grid_size],
             propagator: propagator, 
-            compatible: vec![vec![vec![0; 4]; t]; size * size], 
+            compatible: vec![vec![vec![0; 4]; t]; grid_size * grid_size], 
             stack: Vec::new(), 
-            m_x: size, 
-            m_y: size, 
+            m_x: grid_size, 
+            m_y: grid_size, 
             t: t, 
             n: 1, 
             weights: weights, 
             weight_log_weights: weight_log_weights, 
             distribution: vec![0f32;t], 
-            sums_of_ones: vec![0; size * size], 
+            sums_of_ones: vec![0; grid_size * grid_size], 
             sum_of_weights: sum_of_weights, 
             sum_of_weight_log_weights: sum_of_weight_log_weights, 
             starting_entropy: sum_of_weights.ln() - (sum_of_weight_log_weights / sum_of_weights), 
-            sums_of_weights: vec![0f32; size * size], 
-            sums_of_weight_log_weights: vec![0f32; size * size], 
-            entropies: vec![0f32; size * size], 
+            sums_of_weights: vec![0f32; grid_size * grid_size], 
+            sums_of_weight_log_weights: vec![0f32; grid_size * grid_size], 
+            entropies: vec![0f32; grid_size * grid_size], 
             tiles: tiles, 
             tilenames: tilenames, 
             tilesize: tilesize
@@ -306,21 +316,34 @@ impl SimpleTiledModel {
         map_row
     }
 
-    fn load_tiles_bitmap(domain_name: &String, tile_name: &String, mut tiles: Vec<Vec<u32>>, variants: usize, t: usize) -> Result<(Vec<Vec<u32>>, u32), Box<dyn std::error::Error>>{
-        let (bitmap, tilesize, _) = bitmap_utils::load_bitmap(&format!("tilesets/{}/{}.png", domain_name, tile_name));
-        tiles.push(bitmap);
-        for i in 1..variants {
-            if i <= 3 {
-                tiles.push(rotate(&tiles[t + i - 1]));
+    fn load_tiles_bitmap(domain_name: &String, unique: &bool, tile_name: &String, mut tiles: Vec<Vec<u32>>, variants: usize, t: usize) -> Result<(Vec<Vec<u32>>, u32), Box<dyn std::error::Error>>{
+        let mut tilesize = 0;
+
+        if *unique {
+            for i in 0..variants {
+                let (bitmap, ts, _) = bitmap_utils::load_bitmap(&format!("tilesets/{}/{} {i}.png", domain_name, tile_name));
+                tilesize = ts;
+                tiles.push(bitmap);
             }
-            if i >= 4 {
-                tiles.push(reflect(&tiles[t + i - 4]));
+
+        } else {
+            let (bitmap, ts, _) = bitmap_utils::load_bitmap(&format!("tilesets/{}/{}.png", domain_name, tile_name));
+            tilesize = ts;
+            tiles.push(bitmap);
+            for i in 1..variants {
+                if i <= 3 {
+                    tiles.push(rotate(&tiles[t + i - 1]));
+                }
+                if i >= 4 {
+                    tiles.push(reflect(&tiles[t + i - 4]));
+                }
             }
         }
+
         Ok((tiles, tilesize))
     }
 
-    fn process_tiles(doc: &Document, domain_name: &String, mut weights: Vec<f32>, mut tiles: Vec<Vec<u32>>, mut tilenames: Vec<String>, mut action: Vec<Vec<usize>>, mut first_occurrence: HashMap<String, usize>) -> Result<(usize, u32, Vec<f32>, Vec<Vec<u32>>, Vec<String>, Vec<Vec<usize>>, HashMap<String, usize>), Box<dyn std::error::Error>>{
+    fn process_tiles(doc: &Document, domain_name: &String, unique: &bool, mut weights: Vec<f32>, mut tiles: Vec<Vec<u32>>, mut tilenames: Vec<String>, mut action: Vec<Vec<usize>>, mut first_occurrence: HashMap<String, usize>) -> Result<(usize, u32, Vec<f32>, Vec<Vec<u32>>, Vec<String>, Vec<Vec<usize>>, HashMap<String, usize>), Box<dyn std::error::Error>>{
         let tiles_tag = doc.descendants()
             .find(|n| n.has_tag_name("tiles"))
             .ok_or_else(|| "Tag <tiles> not found in the document!")?;
@@ -341,10 +364,10 @@ impl SimpleTiledModel {
             for i in 0..variants {
                 action.push(Self::get_map_row(i, t, a, b));
                 weights.push(weight);
-                tilenames.push(format!("{}{}", tile_name, i));
+                tilenames.push(format!("{} {}", tile_name, i));
             }
 
-            (tiles, tilesize) = Self::load_tiles_bitmap(domain_name, &tile_name, tiles, variants, t)?;
+            (tiles, tilesize) = Self::load_tiles_bitmap(domain_name, unique, &tile_name, tiles, variants, t)?;
         }
 
         t = action.len();
